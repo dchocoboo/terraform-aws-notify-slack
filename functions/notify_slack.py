@@ -90,38 +90,53 @@ def format_cloudwatch_alarm(message: Dict[str, Any], region: str) -> Dict[str, A
 
     cloudwatch_url = get_service_url(region=region, service="cloudwatch")
     alarm_name = message["AlarmName"]
+    alarm_link = f"{cloudwatch_url}#alarm:alarmFilter=ANY;name={urllib.parse.quote(alarm_name)}"
+    
+    # Build the fields list, conditionally including alarm description
+    fields = [
+        {"title": "Alarm Name", "value": f"<{alarm_link}|{alarm_name}>", "short": True},
+    ]
+    
+    # Only include alarm description if it has a meaningful value
+    alarm_description = message.get('AlarmDescription', '').strip()
+    if alarm_description and alarm_description.lower() not in ['none', 'null', '', 'n/a']:
+        fields.append({
+            "title": "Alarm Description",
+            "value": f"`{alarm_description}`",
+            "short": False,
+        })
+    
+    # Add the remaining fields
+    fields.extend([
+        {
+            "title": "Alarm reason",
+            "value": f"`{message['NewStateReason']}`",
+            "short": False,
+        },
+    ])
+    
+    # Only show old state if it's not the common OK -> ALARM transition
+    old_state = message['OldStateValue']
+    new_state = message['NewStateValue']
+    if not (old_state == 'OK' and new_state == 'ALARM'):
+        fields.append({
+            "title": "Old State",
+            "value": f"`{old_state}`",
+            "short": True,
+        })
+    
+    fields.extend([
+        {
+            "title": "Current State",
+            "value": f"`{new_state}`",
+            "short": True,
+        },
+    ])
 
     return {
         "color": CloudWatchAlarmState[message["NewStateValue"]].value,
         "fallback": f"Alarm {alarm_name} triggered",
-        "fields": [
-            {"title": "Alarm Name", "value": f"`{alarm_name}`", "short": True},
-            {
-                "title": "Alarm Description",
-                "value": f"`{message['AlarmDescription']}`",
-                "short": False,
-            },
-            {
-                "title": "Alarm reason",
-                "value": f"`{message['NewStateReason']}`",
-                "short": False,
-            },
-            {
-                "title": "Old State",
-                "value": f"`{message['OldStateValue']}`",
-                "short": True,
-            },
-            {
-                "title": "Current State",
-                "value": f"`{message['NewStateValue']}`",
-                "short": True,
-            },
-            {
-                "title": "Link to Alarm",
-                "value": f"{cloudwatch_url}#alarm:alarmFilter=ANY;name={urllib.parse.quote(alarm_name)}",
-                "short": False,
-            },
-        ],
+        "fields": fields,
         "text": f"AWS CloudWatch notification - {message['AlarmName']}",
     }
 
