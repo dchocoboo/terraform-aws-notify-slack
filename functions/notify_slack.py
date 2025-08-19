@@ -137,7 +137,7 @@ def format_cloudwatch_alarm(message: Dict[str, Any], region: str) -> Dict[str, A
         "color": CloudWatchAlarmState[message["NewStateValue"]].value,
         "fallback": f"Alarm {alarm_name} triggered",
         "fields": fields,
-        "text": f"AWS CloudWatch notification - {message['AlarmName']}",
+        "text": "AWS CloudWatch notification",
     }
 
 
