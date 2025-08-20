@@ -98,7 +98,8 @@ def format_cloudwatch_alarm(message: Dict[str, Any], region: str) -> Dict[str, A
     ]
     
     # Only include alarm description if it has a meaningful value
-    alarm_description = message.get('AlarmDescription', '').strip()
+    alarm_description = message.get('AlarmDescription') or ''
+    alarm_description = alarm_description.strip() if alarm_description else ''
     if alarm_description and alarm_description.lower() not in ['none', 'null', '', 'n/a']:
         fields.append({
             "title": "Alarm Description",
