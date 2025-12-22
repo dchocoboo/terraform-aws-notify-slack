@@ -64,6 +64,12 @@ variable "lambda_attach_dead_letter_policy" {
   default     = false
 }
 
+variable "enable_lambda_dlq" {
+  description = "Enable Lambda dead-letter queue (DLQ) to send failed invocations to the SNS topic"
+  type        = bool
+  default     = false
+}
+
 variable "sns_topic_name" {
   description = "The name of the SNS topic to create"
   type        = string

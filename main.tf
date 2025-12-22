@@ -33,6 +33,13 @@ locals {
     resources = ["*"]
   }
 
+  lambda_policy_document_dlq = {
+    sid       = "AllowSNSDLQ"
+    effect    = "Allow"
+    actions   = ["sns:Publish"]
+    resources = [local.sns_topic_arn]
+  }
+
   lambda_handler = try(split(".", basename(var.lambda_source_path))[0], "notify_slack")
 
   lambda_role_name = var.iam_role_name_prefix != "" ? "${var.iam_role_name_prefix}-${var.lambda_function_name}" : var.lambda_function_name
@@ -43,7 +50,7 @@ data "aws_iam_policy_document" "lambda" {
 
   dynamic "statement" {
     for_each = concat([local.lambda_policy_document,
-    local.lambda_policy_document_securityhub], var.kms_key_arn != "" ? [local.lambda_policy_document_kms] : [])
+    local.lambda_policy_document_securityhub], var.kms_key_arn != "" ? [local.lambda_policy_document_kms] : [], var.enable_lambda_dlq ? [local.lambda_policy_document_dlq] : [])
     content {
       sid       = statement.value.sid
       effect    = statement.value.effect
@@ -144,8 +151,8 @@ module "lambda" {
   use_existing_cloudwatch_log_group = true
   attach_network_policy             = var.lambda_function_vpc_subnet_ids != null
 
-  dead_letter_target_arn    = var.lambda_dead_letter_target_arn
-  attach_dead_letter_policy = var.lambda_attach_dead_letter_policy
+  dead_letter_target_arn    = var.enable_lambda_dlq ? local.sns_topic_arn : var.lambda_dead_letter_target_arn
+  attach_dead_letter_policy = var.enable_lambda_dlq ? false : var.lambda_attach_dead_letter_policy
 
   allowed_triggers = merge({
     AllowExecutionFromSNS = {
