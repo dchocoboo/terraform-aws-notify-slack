@@ -198,6 +198,12 @@ variable "cloudwatch_log_group_kms_key_id" {
   default     = null
 }
 
+variable "cloudwatch_log_group_deletion_protection_enabled" {
+  description = "Whether to enable deletion protection for the Lambda CloudWatch log group. Once set, switching to false requires explicitly specifying false rather than removing this argument."
+  type        = bool
+  default     = null
+}
+
 variable "tags" {
   description = "A map of tags to add to all resources"
   type        = map(string)
