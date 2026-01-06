@@ -299,3 +299,9 @@ variable "trigger_on_package_timestamp" {
   type        = bool
   default     = false
 }
+
+variable "lambda_insights_enabled" {
+  description = "Enable CloudWatch Lambda Insights for enhanced monitoring (CPU, memory, disk, network metrics)"
+  type        = bool
+  default     = false
+}

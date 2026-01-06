@@ -167,6 +167,9 @@ module "lambda" {
   vpc_subnet_ids         = var.lambda_function_vpc_subnet_ids
   vpc_security_group_ids = var.lambda_function_vpc_security_group_ids
 
+  # CloudWatch Lambda Insights
+  layers = var.lambda_insights_enabled ? ["arn:aws:lambda:${data.aws_region.current.name}:580247275435:layer:LambdaInsightsExtension-Arm64:31"] : null
+
   tags = merge(var.tags, var.lambda_function_tags)
 
   depends_on = [aws_cloudwatch_log_group.lambda]
