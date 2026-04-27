@@ -128,13 +128,13 @@ module "lambda" {
   # InvalidParameterValueException: We currently do not support adding policies for $LATEST."
   publish = true
 
-  environment_variables = {
+  environment_variables = merge({
     SLACK_WEBHOOK_URL = var.slack_webhook_url
     SLACK_CHANNEL     = var.slack_channel
     SLACK_USERNAME    = var.slack_username
     SLACK_EMOJI       = var.slack_emoji
     LOG_EVENTS        = var.log_events ? "True" : "False"
-  }
+  }, length(var.slack_keyword_mentions) > 0 ? { SLACK_KEYWORD_MENTIONS = jsonencode(var.slack_keyword_mentions) } : {})
 
   create_role               = var.lambda_role == ""
   lambda_role               = var.lambda_role

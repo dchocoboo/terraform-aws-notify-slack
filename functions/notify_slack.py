@@ -23,6 +23,14 @@ import boto3
 # Set default region if not provided
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 
+KEYWORD_MENTIONS: Dict[str, list] = {}
+_raw = os.environ.get("SLACK_KEYWORD_MENTIONS", "")
+if _raw:
+    try:
+        KEYWORD_MENTIONS = json.loads(_raw)
+    except json.JSONDecodeError:
+        logging.warning("Invalid JSON in SLACK_KEYWORD_MENTIONS, ignoring")
+
 # Create client so its cached/frozen between invocations
 KMS_CLIENT = boto3.client("kms", region_name=REGION)
 
@@ -583,6 +591,24 @@ def get_slack_message_payload(
     return payload
 
 
+def apply_keyword_mentions(payload: Dict[str, Any]) -> None:
+    if not KEYWORD_MENTIONS:
+        return
+
+    payload_text = json.dumps(payload).lower()
+    user_ids: list[str] = []
+    for keyword, ids in KEYWORD_MENTIONS.items():
+        if keyword.lower() in payload_text:
+            for uid in ids:
+                if uid not in user_ids:
+                    user_ids.append(uid)
+
+    if user_ids:
+        mentions = " ".join(f"<@{uid}>" for uid in user_ids)
+        existing = payload.get("text", "")
+        payload["text"] = f"{existing}\ncc {mentions}" if existing else f"cc {mentions}"
+
+
 def send_slack_notification(payload: Dict[str, Any]) -> str:
     """
     Send notification payload to Slack
@@ -628,6 +654,7 @@ def lambda_handler(event: Dict[str, Any], context: Dict[str, Any]) -> str:
         payload = get_slack_message_payload(
             message=message, region=region, subject=subject
         )
+        apply_keyword_mentions(payload)
         response = send_slack_notification(payload=payload)
 
     if json.loads(response)["code"] != 200:

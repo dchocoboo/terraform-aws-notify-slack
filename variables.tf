@@ -180,6 +180,12 @@ variable "log_events" {
   default     = false
 }
 
+variable "slack_keyword_mentions" {
+  description = "Map of keyword to list of Slack user IDs. When a keyword appears in the message, the corresponding users are mentioned. Example: { DeleteBucket = [\"U12345\"], CRITICAL = [\"U12345\", \"U67890\"] }"
+  type        = map(list(string))
+  default     = {}
+}
+
 variable "reserved_concurrent_executions" {
   description = "The amount of reserved concurrent executions for this lambda function. A value of 0 disables lambda from being triggered and -1 removes any concurrency limitations"
   type        = number
