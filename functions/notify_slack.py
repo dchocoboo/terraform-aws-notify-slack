@@ -605,8 +605,12 @@ def apply_keyword_mentions(payload: Dict[str, Any]) -> None:
 
     if user_ids:
         mentions = " ".join(f"<@{uid}>" for uid in user_ids)
-        existing = payload.get("text", "")
-        payload["text"] = f"{existing}\ncc {mentions}" if existing else f"cc {mentions}"
+        cc_text = f"cc {mentions}"
+        if "attachments" in payload:
+            payload["attachments"].append({"text": cc_text})
+        else:
+            existing = payload.get("text", "")
+            payload["text"] = f"{existing}\n{cc_text}" if existing else cc_text
 
 
 def send_slack_notification(payload: Dict[str, Any]) -> str:
