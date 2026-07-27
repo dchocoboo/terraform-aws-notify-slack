@@ -36,6 +36,8 @@ KMS_CLIENT = boto3.client("kms", region_name=REGION)
 
 SECURITY_HUB_CLIENT = boto3.client('securityhub', region_name=REGION)
 
+BACKUP_CLIENT = boto3.client("backup", region_name=REGION)
+
 
 class AwsService(Enum):
     """AWS service supported by function"""
@@ -436,6 +438,17 @@ def format_aws_health(message: Dict[str, Any], region: str) -> Dict[str, Any]:
     }
 
 
+class BackupJobState(Enum):
+    """Maps AWS Backup job state to Slack message format color"""
+
+    COMPLETED = "good"
+    FAILED = "danger"
+    EXPIRED = "danger"
+    ABORTED = "warning"
+    PARTIAL = "warning"
+    RUNNING = "#439FE0"
+
+
 def aws_backup_field_parser(message: str) -> Dict[str, str]:
     """
     Parser for AWS Backup event message. It extracts the fields from the message and returns a dictionary.
@@ -443,37 +456,89 @@ def aws_backup_field_parser(message: str) -> Dict[str, str]:
     :params message: message containing AWS Backup event
     :returns: dictionary containing the fields extracted from the message
     """
-    # Order is somewhat important, working in reverse order of the message payload
-    # to reduce right most matched values
+    # Each value is a single whitespace-free token (a UUID or an ARN) that runs up
+    # to the sentence-terminating period. Anchoring on the label and capturing
+    # `\S+` avoids the greedy `.*` that used to swallow the rest of the message and
+    # return its last word (e.g. "failed") instead of the actual field value.
     field_names = {
-        "BackupJob ID": r"(BackupJob ID : ).*",
-        "Resource ARN": r"(Resource ARN : ).*[.]",
-        "Recovery point ARN": r"(Recovery point ARN: ).*[.]",
+        "BackupJob ID": r"BackupJob ID\s*:\s*(\S+)",
+        "Resource ARN": r"Resource ARN\s*:\s*(\S+)",
+        "Recovery point ARN": r"Recovery point ARN\s*:\s*(\S+)",
     }
     fields = {}
 
     for fname, freg in field_names.items():
         match = re.search(freg, message)
         if match:
-            value = match.group(0).split(" ")[-1]
-            fields[fname] = value.removesuffix(".")
-
-            # Remove the matched field from the message
-            message = message.replace(match.group(0), "")
+            fields[fname] = match.group(1).rstrip(".")
 
     return fields
 
 
-def format_aws_backup(message: str) -> Dict[str, Any]:
+def get_backup_job_detail(job_id: str) -> tuple[Dict[str, Any], Optional[str]]:
+    """
+    Look up the full AWS Backup job record.
+
+    The vault notification body only carries the job ID and resource ARN — the
+    fields that actually explain a failure (status message, percent done, bytes
+    transferred, resource type) are only available from the API.
+
+    :params job_id: AWS Backup job ID
+    :returns: tuple of (describe_backup_job response, error summary). Exactly one
+        side is populated; the error is surfaced in Slack rather than swallowed so
+        a missing IAM permission can't quietly degrade every notification.
+    """
+    if not job_id:
+        return {}, "no BackupJob ID in the notification, cannot look up job detail"
+
+    try:
+        return BACKUP_CLIENT.describe_backup_job(BackupJobId=job_id), None
+    except Exception as exc:  # noqa: BLE001 - enrichment must never drop the alert
+        logging.exception("Failed to describe backup job %s", job_id)
+
+        # boto3 ClientError carries a structured code; fall back to the class name
+        code = getattr(exc, "response", {}).get("Error", {}).get("Code") or type(exc).__name__
+        detail = f"`{code}` calling `backup:DescribeBackupJob`"
+        if code in ("AccessDenied", "AccessDeniedException", "UnauthorizedOperation"):
+            detail += " — grant `backup:DescribeBackupJob` to this Lambda's execution role"
+        return {}, detail
+
+
+def _sns_attribute(attributes: Optional[Dict[str, Any]], name: str) -> Optional[str]:
+    """Read a single SNS MessageAttribute value
+
+    :params attributes: SNS record MessageAttributes block
+    :params name: attribute name to read
+    :returns: attribute value, or None when absent
+    """
+    entry = (attributes or {}).get(name) or {}
+    return entry.get("Value") or entry.get("value")
+
+
+def _format_bytes(num: Optional[int]) -> str:
+    """Render a byte count in human readable units"""
+    if not num:
+        return "0 B"
+    size = float(num)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            return f"{size:,.2f} {unit}" if unit != "B" else f"{int(size)} B"
+        size /= 1024
+    return f"{size:,.2f} TB"
+
+
+def format_aws_backup(
+    message: str, attributes: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """
     Format AWS Backup event into Slack message format
 
     :params message: SNS message body containing AWS Backup event
+    :params attributes: SNS record MessageAttributes (State, EventType, Id, StartTime)
     :returns: formatted Slack message payload
     """
 
     fields: list[Dict[str, Any]] = []
-    attachments = {}
 
     title = message.split(".")[0]
 
@@ -483,15 +548,116 @@ def format_aws_backup(message: str) -> Dict[str, Any]:
     if "completed" in title:
         title = f"✅ {title}"
 
-    fields.append({"title": title})
-
     backup_fields = aws_backup_field_parser(message)
 
-    for k, v in backup_fields.items():
-        fields.append({"value": k, "short": False})
-        fields.append({"value": f"`{v}`", "short": False})
+    # Prefer the structured SNS attribute over the ID scraped from the prose body
+    job_id = _sns_attribute(attributes, "Id") or backup_fields.get("BackupJob ID", "")
+    state = _sns_attribute(attributes, "State") or ""
+    event_type = _sns_attribute(attributes, "EventType")
+    start_time = _sns_attribute(attributes, "StartTime")
 
-    attachments["fields"] = fields  # type: ignore
+    detail, enrichment_error = get_backup_job_detail(job_id)
+
+    resource_name = detail.get("ResourceName")
+    resource_arn = detail.get("ResourceArn") or backup_fields.get("Resource ARN")
+    state = detail.get("State") or state
+
+    if resource_name or resource_arn:
+        fields.append(
+            {
+                "title": "Resource",
+                "value": f"`{resource_name or resource_arn}`",
+                "short": True,
+            }
+        )
+    if detail.get("ResourceType"):
+        fields.append(
+            {"title": "Resource type", "value": f"`{detail['ResourceType']}`", "short": True}
+        )
+    if state:
+        fields.append({"title": "State", "value": f"`{state}`", "short": True})
+    if event_type:
+        fields.append({"title": "Event type", "value": f"`{event_type}`", "short": True})
+
+    # The three fields that actually diagnose a failure
+    if detail.get("StatusMessage"):
+        fields.append(
+            {"title": "Status message", "value": f"`{detail['StatusMessage']}`", "short": False}
+        )
+    if detail.get("MessageCategory"):
+        fields.append(
+            {"title": "Message category", "value": f"`{detail['MessageCategory']}`", "short": True}
+        )
+    if detail.get("PercentDone") is not None:
+        fields.append(
+            {"title": "Percent done", "value": f"`{detail['PercentDone']}%`", "short": True}
+        )
+    if detail.get("BytesTransferred") is not None:
+        fields.append(
+            {
+                "title": "Bytes transferred",
+                "value": f"`{_format_bytes(detail.get('BytesTransferred'))}`",
+                "short": True,
+            }
+        )
+    if detail.get("BackupSizeInBytes") is not None:
+        fields.append(
+            {
+                "title": "Backup size",
+                "value": f"`{_format_bytes(detail.get('BackupSizeInBytes'))}`",
+                "short": True,
+            }
+        )
+
+    for label, key in (("Started", "CreationDate"), ("Completed", "CompletionDate")):
+        value = detail.get(key)
+        if value is not None:
+            rendered = value.isoformat() if hasattr(value, "isoformat") else str(value)
+            fields.append({"title": label, "value": f"`{rendered}`", "short": True})
+    if not detail and start_time:
+        fields.append({"title": "Started", "value": f"`{start_time}`", "short": True})
+
+    if detail.get("BackupVaultName"):
+        fields.append(
+            {"title": "Vault", "value": f"`{detail['BackupVaultName']}`", "short": True}
+        )
+    if job_id:
+        fields.append({"title": "BackupJob ID", "value": f"`{job_id}`", "short": False})
+    if resource_arn:
+        fields.append({"title": "Resource ARN", "value": f"`{resource_arn}`", "short": False})
+    if backup_fields.get("Recovery point ARN"):
+        fields.append(
+            {
+                "title": "Recovery point ARN",
+                "value": f"`{backup_fields['Recovery point ARN']}`",
+                "short": False,
+            }
+        )
+
+    # Surface enrichment failure loudly. A missing IAM permission would otherwise
+    # silently strip every diagnostic field and leave only the terse SNS body,
+    # which looks identical to "AWS didn't tell us anything".
+    if enrichment_error:
+        fields.append(
+            {
+                "title": "⚠️ Job detail unavailable",
+                "value": enrichment_error,
+                "short": False,
+            }
+        )
+
+    attachments: Dict[str, Any] = {
+        "fallback": title,
+        "title": title,
+        "fields": fields,
+        "text": "AWS Backup notification",
+        "mrkdwn_in": ["value", "text"],
+    }
+
+    try:
+        attachments["color"] = BackupJobState[state.upper()].value
+    except KeyError:
+        pass
 
     return attachments
 
@@ -527,13 +693,19 @@ def format_default(
     return attachments
 
 
-def parse_notification(message: Dict[str, Any], subject: Optional[str], region: str) -> Optional[Dict]:
+def parse_notification(
+    message: Dict[str, Any],
+    subject: Optional[str],
+    region: str,
+    attributes: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict]:
     """
     Parse notification message and format into Slack message payload
 
     :params message: SNS message body notification payload
     :params subject: Optional subject line for Slack notification
     :params region: AWS region where the event originated from
+    :params attributes: Optional SNS record MessageAttributes
     :returns: Slack message payload
     """
     if "AlarmName" in message:
@@ -545,12 +717,15 @@ def parse_notification(message: Dict[str, Any], subject: Optional[str], region: 
     if isinstance(message, Dict) and message.get("detail-type") == "AWS Health Event":
         return format_aws_health(message=message, region=message["region"])
     if subject == "Notification from AWS Backup":
-        return format_aws_backup(message=str(message))
+        return format_aws_backup(message=str(message), attributes=attributes)
     return format_default(message=message, subject=subject)
 
 
 def get_slack_message_payload(
-    message: Union[str, Dict], region: str, subject: Optional[str] = None
+    message: Union[str, Dict],
+    region: str,
+    subject: Optional[str] = None,
+    attributes: Optional[Dict[str, Any]] = None,
 ) -> Dict:
     """
     Parse notification message and format into Slack message payload
@@ -558,6 +733,7 @@ def get_slack_message_payload(
     :params message: SNS message body notification payload
     :params region: AWS region where the event originated from
     :params subject: Optional subject line for Slack notification
+    :params attributes: Optional SNS record MessageAttributes
     :returns: Slack message payload
     """
 
@@ -583,7 +759,7 @@ def get_slack_message_payload(
     if "attachments" in message or "text" in message:
         payload = {**payload, **message}
     else:
-        attachment = parse_notification(message, subject, region)
+        attachment = parse_notification(message, subject, region, attributes)
 
     if attachment:
         payload["attachments"] = [attachment]  # type: ignore
@@ -656,7 +832,10 @@ def lambda_handler(event: Dict[str, Any], context: Dict[str, Any]) -> str:
         region = sns["TopicArn"].split(":")[3]
 
         payload = get_slack_message_payload(
-            message=message, region=region, subject=subject
+            message=message,
+            region=region,
+            subject=subject,
+            attributes=sns.get("MessageAttributes"),
         )
         apply_keyword_mentions(payload)
         response = send_slack_notification(payload=payload)

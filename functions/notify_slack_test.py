@@ -14,6 +14,13 @@ import notify_slack
 import pytest
 
 
+class _StubBackupClient:
+    """Offline stand-in for the AWS Backup client used by format_aws_backup"""
+
+    def describe_backup_job(self, BackupJobId):  # noqa: N803 - boto3 kwarg casing
+        raise RuntimeError(f"backup job {BackupJobId} not available in tests")
+
+
 def test_sns_get_slack_message_payload_snapshots(snapshot, monkeypatch):
     """
     Compare outputs of get_slack_message_payload() with snapshots stored
@@ -24,6 +31,10 @@ def test_sns_get_slack_message_payload_snapshots(snapshot, monkeypatch):
     monkeypatch.setenv("SLACK_CHANNEL", "slack_testing_sandbox")
     monkeypatch.setenv("SLACK_USERNAME", "notify_slack_test")
     monkeypatch.setenv("SLACK_EMOJI", ":aws:")
+
+    # AWS Backup notifications enrich themselves via describe_backup_job; stub the
+    # client so the suite stays offline and deterministic
+    monkeypatch.setattr(notify_slack, "BACKUP_CLIENT", _StubBackupClient())
 
     # These are SNS messages that invoke the lambda handler; the event payload is in the
     # `message` field
@@ -43,7 +54,10 @@ def test_sns_get_slack_message_payload_snapshots(snapshot, monkeypatch):
                 region = sns["TopicArn"].split(":")[3]
 
                 attachment = notify_slack.get_slack_message_payload(
-                    message=message, region=region, subject=subject
+                    message=message,
+                    region=region,
+                    subject=subject,
+                    attributes=sns.get("MessageAttributes"),
                 )
                 attachments.append(attachment)
 
