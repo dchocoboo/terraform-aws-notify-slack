@@ -33,7 +33,16 @@ locals {
     resources = ["*"]
   }
 
+  lambda_policy_document_dlq = {
+    sid       = "AllowSNSDLQ"
+    effect    = "Allow"
+    actions   = ["sns:Publish"]
+    resources = [local.sns_topic_arn]
+  }
+
   lambda_handler = try(split(".", basename(var.lambda_source_path))[0], "notify_slack")
+
+  lambda_role_name = var.iam_role_name_prefix != "" ? "${var.iam_role_name_prefix}-${var.lambda_function_name}" : var.lambda_function_name
 }
 
 data "aws_iam_policy_document" "lambda" {
@@ -41,7 +50,7 @@ data "aws_iam_policy_document" "lambda" {
 
   dynamic "statement" {
     for_each = concat([local.lambda_policy_document,
-    local.lambda_policy_document_securityhub], var.kms_key_arn != "" ? [local.lambda_policy_document_kms] : [])
+    local.lambda_policy_document_securityhub], var.kms_key_arn != "" ? [local.lambda_policy_document_kms] : [], var.enable_lambda_dlq ? [local.lambda_policy_document_dlq] : [])
     content {
       sid       = statement.value.sid
       effect    = statement.value.effect
@@ -54,9 +63,10 @@ data "aws_iam_policy_document" "lambda" {
 resource "aws_cloudwatch_log_group" "lambda" {
   count = var.create ? 1 : 0
 
-  name              = "/aws/lambda/${var.lambda_function_name}"
-  retention_in_days = var.cloudwatch_log_group_retention_in_days
-  kms_key_id        = var.cloudwatch_log_group_kms_key_id
+  name                        = "/aws/lambda/${var.lambda_function_name}"
+  retention_in_days           = var.cloudwatch_log_group_retention_in_days
+  kms_key_id                  = var.cloudwatch_log_group_kms_key_id
+  deletion_protection_enabled = var.cloudwatch_log_group_deletion_protection_enabled
 
   tags = merge(var.tags, var.cloudwatch_log_group_tags)
 }
@@ -75,6 +85,13 @@ resource "aws_sns_topic" "this" {
   tags = merge(var.tags, var.sns_topic_tags)
 }
 
+resource "aws_sns_topic_policy" "access_policy" {
+  count = var.create && var.sns_topic_access_policy != "" ? 1 : 0
+
+  arn    = local.sns_topic_arn
+  policy = var.sns_topic_access_policy
+}
+
 
 resource "aws_sns_topic_subscription" "sns_notify_slack" {
   count = var.create ? 1 : 0
@@ -88,7 +105,7 @@ resource "aws_sns_topic_subscription" "sns_notify_slack" {
 
 module "lambda" {
   source  = "terraform-aws-modules/lambda/aws"
-  version = "6.8.0"
+  version = "~> 8.0"
 
   create = var.create
 
@@ -99,7 +116,7 @@ module "lambda" {
   handler                        = "${local.lambda_handler}.lambda_handler"
   source_path                    = var.lambda_source_path != null ? "${path.root}/${var.lambda_source_path}" : "${path.module}/functions/notify_slack.py"
   recreate_missing_package       = var.recreate_missing_package
-  runtime                        = "python3.11"
+  runtime                        = "python3.14"
   architectures                  = var.architectures
   timeout                        = 30
   kms_key_arn                    = var.kms_key_arn
@@ -111,22 +128,20 @@ module "lambda" {
   # InvalidParameterValueException: We currently do not support adding policies for $LATEST."
   publish = true
 
-  environment_variables = {
+  environment_variables = merge({
     SLACK_WEBHOOK_URL = var.slack_webhook_url
     SLACK_CHANNEL     = var.slack_channel
     SLACK_USERNAME    = var.slack_username
     SLACK_EMOJI       = var.slack_emoji
     LOG_EVENTS        = var.log_events ? "True" : "False"
-  }
+  }, length(var.slack_keyword_mentions) > 0 ? { SLACK_KEYWORD_MENTIONS = jsonencode(var.slack_keyword_mentions) } : {})
 
   create_role               = var.lambda_role == ""
   lambda_role               = var.lambda_role
-  role_name                 = "${var.iam_role_name_prefix}-${var.lambda_function_name}"
+  role_name                 = local.lambda_role_name
   role_permissions_boundary = var.iam_role_boundary_policy_arn
   role_tags                 = var.iam_role_tags
   role_path                 = var.iam_role_path
-  policy_path               = var.iam_policy_path
-
   # Do not use Lambda's policy for cloudwatch logs, because we have to add a policy
   # for KMS conditionally. This way attach_policy_json is always true independenty of
   # the value of presense of KMS. Famous "computed values in count" bug...
@@ -137,21 +152,24 @@ module "lambda" {
   use_existing_cloudwatch_log_group = true
   attach_network_policy             = var.lambda_function_vpc_subnet_ids != null
 
-  dead_letter_target_arn    = var.lambda_dead_letter_target_arn
-  attach_dead_letter_policy = var.lambda_attach_dead_letter_policy
+  dead_letter_target_arn    = var.enable_lambda_dlq ? local.sns_topic_arn : var.lambda_dead_letter_target_arn
+  attach_dead_letter_policy = var.enable_lambda_dlq ? false : var.lambda_attach_dead_letter_policy
 
-  allowed_triggers = {
+  allowed_triggers = merge({
     AllowExecutionFromSNS = {
       principal  = "sns.amazonaws.com"
       source_arn = local.sns_topic_arn
     }
-  }
+  }, var.lambda_extra_allowed_triggers)
 
   store_on_s3 = var.lambda_function_store_on_s3
   s3_bucket   = var.lambda_function_s3_bucket
 
   vpc_subnet_ids         = var.lambda_function_vpc_subnet_ids
   vpc_security_group_ids = var.lambda_function_vpc_security_group_ids
+
+  # CloudWatch Lambda Insights
+  layers = var.lambda_insights_enabled ? ["arn:aws:lambda:${data.aws_region.current.name}:580247275435:layer:LambdaInsightsExtension-Arm64:31"] : null
 
   tags = merge(var.tags, var.lambda_function_tags)
 

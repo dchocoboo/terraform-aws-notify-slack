@@ -64,9 +64,21 @@ variable "lambda_attach_dead_letter_policy" {
   default     = false
 }
 
+variable "enable_lambda_dlq" {
+  description = "Enable Lambda dead-letter queue (DLQ) to send failed invocations to the SNS topic"
+  type        = bool
+  default     = false
+}
+
 variable "sns_topic_name" {
   description = "The name of the SNS topic to create"
   type        = string
+}
+
+variable "sns_topic_access_policy" {
+  description = "The JSON of the SNS topic policy, if any"
+  type        = string
+  default     = ""
 }
 
 variable "sns_topic_kms_key_id" {
@@ -168,6 +180,12 @@ variable "log_events" {
   default     = false
 }
 
+variable "slack_keyword_mentions" {
+  description = "Map of keyword to list of Slack user IDs. When a keyword appears in the message, the corresponding users are mentioned. Example: { DeleteBucket = [\"U12345\"], CRITICAL = [\"U12345\", \"U67890\"] }"
+  type        = map(list(string))
+  default     = {}
+}
+
 variable "reserved_concurrent_executions" {
   description = "The amount of reserved concurrent executions for this lambda function. A value of 0 disables lambda from being triggered and -1 removes any concurrency limitations"
   type        = number
@@ -183,6 +201,12 @@ variable "cloudwatch_log_group_retention_in_days" {
 variable "cloudwatch_log_group_kms_key_id" {
   description = "The ARN of the KMS Key to use when encrypting log data for Lambda"
   type        = string
+  default     = null
+}
+
+variable "cloudwatch_log_group_deletion_protection_enabled" {
+  description = "Whether to enable deletion protection for the Lambda CloudWatch log group. Once set, switching to false requires explicitly specifying false rather than removing this argument."
+  type        = bool
   default     = null
 }
 
@@ -212,12 +236,6 @@ variable "iam_role_name_prefix" {
 
 variable "iam_role_path" {
   description = "Path of IAM role to use for Lambda Function"
-  type        = string
-  default     = null
-}
-
-variable "iam_policy_path" {
-  description = "Path of policies to that should be added to IAM role for Lambda Function"
   type        = string
   default     = null
 }
@@ -258,6 +276,12 @@ variable "lambda_function_ephemeral_storage_size" {
   default     = 512
 }
 
+variable "lambda_extra_allowed_triggers" {
+  description = "To allow other resources to trigger this lambda"
+  type        = map(any)
+  default     = {}
+}
+
 variable "sns_topic_tags" {
   description = "Additional tags for the SNS topic"
   type        = map(string)
@@ -284,6 +308,12 @@ variable "subscription_filter_policy_scope" {
 
 variable "trigger_on_package_timestamp" {
   description = "(Optional) Whether or not to ignore the file timestamp when deciding to create the archive"
+  type        = bool
+  default     = false
+}
+
+variable "lambda_insights_enabled" {
+  description = "Enable CloudWatch Lambda Insights for enhanced monitoring (CPU, memory, disk, network metrics)"
   type        = bool
   default     = false
 }

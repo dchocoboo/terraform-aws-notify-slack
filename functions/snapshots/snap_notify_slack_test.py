@@ -286,35 +286,56 @@ snapshots['test_sns_get_slack_message_payload_snapshots message_backup.json'] = 
     {
         'attachments': [
             {
+                'color': 'good',
+                'fallback': '✅ An AWS Backup job was completed successfully',
                 'fields': [
                     {
-                        'title': '✅ An AWS Backup job was completed successfully'
+                        'short': True,
+                        'title': 'Resource',
+                        'value': '`arn:aws:ec2:us-west-1:123456789012:volume/vol-012f345df6789012e`'
+                    },
+                    {
+                        'short': True,
+                        'title': 'State',
+                        'value': '`COMPLETED`'
+                    },
+                    {
+                        'short': True,
+                        'title': 'Event type',
+                        'value': '`BACKUP_JOB`'
+                    },
+                    {
+                        'short': True,
+                        'title': 'Started',
+                        'value': '`2019-09-02T13:48:52.226Z`'
                     },
                     {
                         'short': False,
-                        'value': 'BackupJob ID'
-                    },
-                    {
-                        'short': False,
+                        'title': 'BackupJob ID',
                         'value': '`1b2345b2-f22c-4dab-5eb6-bbc7890ed123`'
                     },
                     {
                         'short': False,
-                        'value': 'Resource ARN'
-                    },
-                    {
-                        'short': False,
+                        'title': 'Resource ARN',
                         'value': '`arn:aws:ec2:us-west-1:123456789012:volume/vol-012f345df6789012e`'
                     },
                     {
                         'short': False,
-                        'value': 'Recovery point ARN'
-                    },
-                    {
-                        'short': False,
+                        'title': 'Recovery point ARN',
                         'value': '`arn:aws:ec2:us-west-1:123456789012:volume/vol-012f345df6789012d`'
+                    },
+                    {
+                        'short': False,
+                        'title': '⚠️ Job detail unavailable',
+                        'value': '`RuntimeError` calling `backup:DescribeBackupJob`'
                     }
-                ]
+                ],
+                'mrkdwn_in': [
+                    'value',
+                    'text'
+                ],
+                'text': 'AWS Backup notification',
+                'title': '✅ An AWS Backup job was completed successfully'
             }
         ],
         'channel': 'slack_testing_sandbox',
@@ -324,27 +345,51 @@ snapshots['test_sns_get_slack_message_payload_snapshots message_backup.json'] = 
     {
         'attachments': [
             {
+                'color': 'danger',
+                'fallback': '⚠️ An AWS Backup job failed',
                 'fields': [
                     {
-                        'title': '⚠️ An AWS Backup job failed'
+                        'short': True,
+                        'title': 'Resource',
+                        'value': '`arn:aws:ec2:us-west-1:123456789012:volume/vol-012f345df6789012e`'
+                    },
+                    {
+                        'short': True,
+                        'title': 'State',
+                        'value': '`FAILED`'
+                    },
+                    {
+                        'short': True,
+                        'title': 'Event type',
+                        'value': '`BACKUP_JOB`'
+                    },
+                    {
+                        'short': True,
+                        'title': 'Started',
+                        'value': '`2019-09-02T13:48:52.226Z`'
                     },
                     {
                         'short': False,
-                        'value': 'BackupJob ID'
-                    },
-                    {
-                        'short': False,
+                        'title': 'BackupJob ID',
                         'value': '`1b2345b2-f22c-4dab-5eb6-bbc7890ed123`'
                     },
                     {
                         'short': False,
-                        'value': 'Resource ARN'
+                        'title': 'Resource ARN',
+                        'value': '`arn:aws:ec2:us-west-1:123456789012:volume/vol-012f345df6789012e`'
                     },
                     {
                         'short': False,
-                        'value': '`arn:aws:ec2:us-west-1:123456789012:volume/vol-012f345df6789012e`'
+                        'title': '⚠️ Job detail unavailable',
+                        'value': '`RuntimeError` calling `backup:DescribeBackupJob`'
                     }
-                ]
+                ],
+                'mrkdwn_in': [
+                    'value',
+                    'text'
+                ],
+                'text': 'AWS Backup notification',
+                'title': '⚠️ An AWS Backup job failed'
             }
         ],
         'channel': 'slack_testing_sandbox',
@@ -354,27 +399,51 @@ snapshots['test_sns_get_slack_message_payload_snapshots message_backup.json'] = 
     {
         'attachments': [
             {
+                'color': 'danger',
+                'fallback': '⚠️ An AWS Backup job failed to complete in time',
                 'fields': [
                     {
-                        'title': '⚠️ An AWS Backup job failed to complete in time'
+                        'short': True,
+                        'title': 'Resource',
+                        'value': '`arn:aws:ec2:us-west-1:123456789012:volume/vol-012f345df6789012e`'
+                    },
+                    {
+                        'short': True,
+                        'title': 'State',
+                        'value': '`EXPIRED`'
+                    },
+                    {
+                        'short': True,
+                        'title': 'Event type',
+                        'value': '`BACKUP_JOB`'
+                    },
+                    {
+                        'short': True,
+                        'title': 'Started',
+                        'value': '`2019-09-02T13:48:52.226Z`'
                     },
                     {
                         'short': False,
-                        'value': 'BackupJob ID'
-                    },
-                    {
-                        'short': False,
+                        'title': 'BackupJob ID',
                         'value': '`1b2345b2-f22c-4dab-5eb6-bbc7890ed123`'
                     },
                     {
                         'short': False,
-                        'value': 'Resource ARN'
+                        'title': 'Resource ARN',
+                        'value': '`arn:aws:ec2:us-west-1:123456789012:volume/vol-012f345df6789012e`'
                     },
                     {
                         'short': False,
-                        'value': '`arn:aws:ec2:us-west-1:123456789012:volume/vol-012f345df6789012e`'
+                        'title': '⚠️ Job detail unavailable',
+                        'value': '`RuntimeError` calling `backup:DescribeBackupJob`'
                     }
-                ]
+                ],
+                'mrkdwn_in': [
+                    'value',
+                    'text'
+                ],
+                'text': 'AWS Backup notification',
+                'title': '⚠️ An AWS Backup job failed to complete in time'
             }
         ],
         'channel': 'slack_testing_sandbox',

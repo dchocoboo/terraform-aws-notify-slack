@@ -3,6 +3,11 @@ output "slack_topic_arn" {
   value       = local.sns_topic_arn
 }
 
+output "slack_topic_name" {
+  description = "The name of the SNS topic from which messages will be sent to Slack"
+  value       = var.sns_topic_name
+}
+
 # todo: Remove `this_slack_topic_arn` output during next major release 5.x
 output "this_slack_topic_arn" {
   description = "The ARN of the SNS topic from which messages will be sent to Slack (backward compatibility for version 4.x)"
